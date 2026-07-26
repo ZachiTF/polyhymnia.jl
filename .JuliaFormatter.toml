@@ -1,0 +1,13 @@
+# JuliaFormatter's default style, which is what the source is already written
+# in. `notebooks` is excluded: reformatting moves code across the `# ╔═╡` and
+# `# ╠═╡` markers Pluto uses to delimit cells, which corrupts the notebook.
+style = "default"
+margin = 92
+indent = 4
+always_for_in = true
+whitespace_ops_in_indices = true
+remove_extra_newlines = true
+# Off deliberately: the source uses compact one-line `"""..."""` docstrings, and
+# enabling this expands every one of them to three lines for no benefit.
+format_docstrings = false
+ignore = ["notebooks"]

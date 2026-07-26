@@ -1,0 +1,7 @@
+# Minimal environment for the CI format check, so that job never has to build
+# the Euterpe dependency tree just to run a formatter.
+[deps]
+JuliaFormatter = "98e50ef6-434e-11e9-1051-2b60c6c9e899"
+
+[compat]
+JuliaFormatter = "2.12"

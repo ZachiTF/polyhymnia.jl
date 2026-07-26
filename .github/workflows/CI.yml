@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (Julia ${{ matrix.version }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    # Euterpe pulls in DifferentialEquations and ModelingToolkit. A cold cache
+    # spends most of its time precompiling those, so the timeout is generous.
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        # 1.11 is the floor, set by Project.toml's [sources] requirement.
+        version: ["1.11"]
+        os: [ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: ${{ matrix.version }}
+      - uses: julia-actions/cache@v2
+      - uses: julia-actions/julia-buildpkg@v1
+      # No audio device on the runner. The suite only exercises the WebAudio
+      # sink and the offline renderers, so nothing opens a PortAudio stream.
+      #
+      # check_bounds: no is load-bearing. The default (`--check-bounds=yes`)
+      # invalidates every precompiled cache file, so each run rebuilds the whole
+      # ModelingToolkit/DifferentialEquations tree that Euterpe drags in — the
+      # actions/cache restore buys nothing. Polyhymnia's own code is small
+      # enough that losing bounds-checking in CI is a fair trade.
+      - uses: julia-actions/julia-runtest@v1
+        with:
+          check_bounds: "no"
+
+  format:
+    name: Format check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1"
+      - uses: julia-actions/cache@v2
+      # Deliberately not the project environment: this only needs the formatter,
+      # not the Euterpe dependency tree.
+      - name: Check formatting
+        run: julia --project=.ci .ci/format_check.jl

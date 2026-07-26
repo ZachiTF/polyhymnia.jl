@@ -1,0 +1,45 @@
+# Fast checks only. The test suite deliberately does NOT run here: `using
+# Polyhymnia` loads Euterpe, which pulls in DifferentialEquations and
+# ModelingToolkit — minutes of load time. Tests run in CI instead.
+#
+# Setup, once per clone:
+#   pip install pre-commit          # or: pipx install pre-commit
+#   pre-commit install              # installs pre-commit *and* commit-msg hooks
+#   julia -e 'using Pkg; Pkg.add("JuliaFormatter")'
+
+default_install_hook_types: [pre-commit, commit-msg]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      # Pluto owns the exact bytes of its notebooks; whitespace fixups there
+      # produce spurious diffs and can desynchronise the cell-order block.
+      - id: trailing-whitespace
+        exclude: ^notebooks/
+      - id: end-of-file-fixer
+        exclude: ^notebooks/
+      - id: mixed-line-ending
+        args: [--fix=lf]
+        exclude: ^notebooks/
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-toml
+      - id: check-yaml
+      # A single rendered cycle of audio is megabytes. *.wav is gitignored, but
+      # this catches a force-add or a stray sample pack.
+      - id: check-added-large-files
+        args: [--maxkb=512]
+
+  - repo: https://github.com/domluna/JuliaFormatter.jl
+    rev: v2.12.2
+    hooks:
+      # `language: system` — needs JuliaFormatter in your default environment.
+      - id: julia-formatter
+        files: ^(src|test|\.ci)/.*\.jl$|^run\.jl$
+
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.4.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
