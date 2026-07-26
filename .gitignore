@@ -1,0 +1,27 @@
+# Resolved environment. Deps are pinned by Project.toml's [compat] and
+# [sources], so the Manifest is a local artefact — see CONTRIBUTING.md.
+/Manifest.toml
+/.ci/Manifest.toml
+/docs/Manifest.toml
+/docs/build/
+LocalPreferences.toml
+deps/build.log
+
+# Coverage and profiling output
+*.jl.cov
+*.jl.*.cov
+*.jl.mem
+
+# Pluto's autosave/backup files
+*.jl.bak
+.*.jl.swp
+
+# Rendered audio. Nothing under notebooks/ should be committed as audio;
+# if a demo render ever needs tracking, force-add it deliberately.
+*.wav
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+.DS_Store

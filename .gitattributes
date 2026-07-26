@@ -1,0 +1,8 @@
+* text=auto eol=lf
+
+*.wav binary
+
+# Pluto rewrites cell UUIDs and the trailing `# ╔═╡ Cell order:` block on every
+# save, so a three-way merge produces a file that parses but whose cell order is
+# silently wrong. Refuse to auto-merge and let a human re-save in Pluto instead.
+notebooks/*.jl -merge
