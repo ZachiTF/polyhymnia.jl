@@ -218,7 +218,30 @@ end
 Turn one event's control bag into mono samples. `dur` is the event's length in
 seconds; the returned buffer may be shorter (percussion) or longer (release tail).
 """
-function render_voice(ctl::Controls, dur::Real, sr::Int = SAMPLERATE)
+render_voice(ctl::Controls, dur::Real, sr::Int = SAMPLERATE) =
+    _render_voice(ctl, dur, sr, nothing)
+
+"""
+    voice_stages(ctl, dur, sr) -> Vector{Pair{String,Vector{Float64}}}
+
+The same render, but keeping a labelled copy of the signal after every stage —
+oscillator, envelope, filters, gain. This is what the signal-chain inspector
+draws, and it shares `_render_voice` with `render_voice` so the picture cannot
+drift away from what you hear.
+"""
+function voice_stages(ctl::Controls, dur::Real, sr::Int = SAMPLERATE)
+    stages = Pair{String,Vector{Float64}}[]
+    _render_voice(ctl, dur, sr, (label, buf) -> push!(stages, label => copy(buf)))
+    stages
+end
+
+# Taps are free when nobody is listening: `nothing` compiles the call away.
+@inline _tap(::Nothing, ::AbstractString, ::Vector{Float64}) = nothing
+@inline _tap(tap, label::AbstractString, buf::Vector{Float64}) = (tap(label, buf); nothing)
+
+_hz(x) = string(round(Float64(x), digits = x < 100 ? 2 : 1), " Hz")
+
+function _render_voice(ctl::Controls, dur::Real, sr::Int, tap)
     dur = max(Float64(dur), 1 / sr)
     name = string(get(ctl, :s, "sine"))
     # "bd:3"-style suffixes select a sample in Strudel; we only need the name.
@@ -229,7 +252,9 @@ function render_voice(ctl::Controls, dur::Real, sr::Int = SAMPLERATE)
     sounding = dur * legato
 
     buf = if is_drum(name)
-        render_drum(name, min(sounding * 2, max(sounding, 0.35)), sr)
+        drum = render_drum(name, min(sounding * 2, max(sounding, 0.35)), sr)
+        _tap(tap, "drum \"$name\"", drum)
+        drum
     else
         freq = if haskey(ctl, :note)
             to_freq(ctl[:note])
@@ -244,6 +269,7 @@ function render_voice(ctl::Controls, dur::Real, sr::Int = SAMPLERATE)
         rel = Float64(get(ctl, :release, 0.1))
         total = sounding + rel
         osc = oscillator(name, freq * speed, total, sr)
+        _tap(tap, "osc \"$name\" @ $(_hz(freq * speed))", osc)
         env = adsr_envelope(
             length(osc),
             sr;
@@ -252,14 +278,27 @@ function render_voice(ctl::Controls, dur::Real, sr::Int = SAMPLERATE)
             sustain = Float64(get(ctl, :sustain, 0.7)),
             release = rel,
         )
-        osc .* env
+        _tap(tap, "adsr envelope", env)
+        voiced = osc .* env
+        _tap(tap, "osc × envelope", voiced)
+        voiced
     end
 
     isempty(buf) && return buf
-    haskey(ctl, :cutoff) && lowpass!(buf, Float64(ctl[:cutoff]), sr)
-    haskey(ctl, :hcutoff) && highpass!(buf, Float64(ctl[:hcutoff]), sr)
-    haskey(ctl, :shape) && saturate!(buf, Float64(ctl[:shape]))
+    if haskey(ctl, :cutoff)
+        lowpass!(buf, Float64(ctl[:cutoff]), sr)
+        _tap(tap, "lowpass $(_hz(ctl[:cutoff]))", buf)
+    end
+    if haskey(ctl, :hcutoff)
+        highpass!(buf, Float64(ctl[:hcutoff]), sr)
+        _tap(tap, "highpass $(_hz(ctl[:hcutoff]))", buf)
+    end
+    if haskey(ctl, :shape)
+        saturate!(buf, Float64(ctl[:shape]))
+        _tap(tap, "shape $(round(Float64(ctl[:shape]), digits=2))", buf)
+    end
     buf .*= gain
+    _tap(tap, "gain $(round(gain, digits=2))", buf)
     buf
 end
 

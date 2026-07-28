@@ -62,6 +62,43 @@ function render_cycles(
 end
 
 """
+    render_stems(tracks, from, to; cps, sr, ...) -> Vector{Pair{String,Matrix}}
+
+Render each track to its own buffer instead of mixing them. `tracks` is either a
+vector of patterns or of `"name" => pattern` pairs.
+
+The stems are scaled by a *single* factor derived from their sum, so playing
+them together reproduces `render_cycles` over the overlay: limiting each stem on
+its own would quietly rebalance the mix.
+
+Voices built on noise (`hh`, `sd`, `noise`) draw from one global RNG, so they
+differ between any two renders — mixed or split alike — and the sum only matches
+the overlay exactly for deterministic voices.
+"""
+function render_stems(tracks, from::Real = 0, to::Real = 4; ceiling::Real = 0.95, kw...)
+    named = _named_tracks(tracks)
+    stems = [name => render_cycles(pat, from, to; kw...) for (name, pat) in named]
+    isempty(stems) && return stems
+
+    n = maximum(size(buf, 1) for (_, buf) in stems)
+    mix = zeros(Float64, n, 2)
+    for (_, buf) in stems
+        mix[1:size(buf, 1), :] .+= buf
+    end
+    peak = isempty(mix) ? 0.0 : maximum(abs, mix)
+    if peak > ceiling
+        for (_, buf) in stems
+            buf .*= ceiling / peak
+        end
+    end
+    stems
+end
+
+_named_tracks(tracks) = [_named_track(i, t) for (i, t) in enumerate(tracks)]
+_named_track(i::Int, t::Pair) = string(first(t)) => to_pattern(last(t))
+_named_track(i::Int, t) = "track $i" => to_pattern(t)
+
+"""
 Scale down only if the buffer would clip, so relative dynamics survive.
 """
 function limit!(buf::AbstractMatrix{Float64}; ceiling::Real = 0.95)
