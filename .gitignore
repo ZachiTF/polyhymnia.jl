@@ -2,6 +2,7 @@
 # [sources], so the Manifest is a local artefact — see CONTRIBUTING.md.
 /Manifest.toml
 /.ci/Manifest.toml
+/notebooks/Manifest.toml
 /docs/Manifest.toml
 /docs/build/
 LocalPreferences.toml

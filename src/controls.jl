@@ -41,6 +41,37 @@ Use `note("c3 e3")` when you mean pitch.
 ensure_controls(p::Pattern) = map_values(v -> v isa Controls ? v : as_controls(:s, v), p)
 
 """
+    controls_of(ev) -> Controls
+
+The control bag behind an event, promoting a bare value the same way
+`ensure_controls` would. Anything reading events one at a time — the renderer,
+the plots — needs this, and needs to agree on it.
+"""
+controls_of(ev::Event) = as_controls(:s, ev.value)
+
+"""
+    event_label(ctl) -> String
+
+What to call an event on screen: its sound, else its pitch, in that order.
+"""
+event_label(ctl::Controls) = string(get(ctl, :s, get(ctl, :note, get(ctl, :n, "?"))))
+event_label(ev::Event) = event_label(controls_of(ev))
+
+"""
+    onset_events(pat, from = 0, to = from + 1) -> Vector{Event}
+
+The events of cycles `[from, to)` that begin there, in the order they are heard.
+`query_cycle` returns them in whatever order the pattern's structure produces,
+which is fine for a renderer summing into a buffer but wrong for anything that
+counts notes or draws them left to right.
+"""
+function onset_events(pat, from::Integer = 0, to::Integer = from + 1)
+    p = to_pattern(pat)
+    evs = filter(has_onset, p.query(Span(Time(from), Time(to))))
+    sort!(evs; by = ev -> ev.extent.b)
+end
+
+"""
 A control that has been given its value but not yet a pattern to apply it to.
 It doubles as a `Pattern` (so `gain(0.8)` can stand alone) and as a function
 (so `pat |> gain(0.8)` works through Julia's ordinary `|>`).

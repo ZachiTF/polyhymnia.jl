@@ -1,4 +1,5 @@
 using Test
+using TOML
 using Polyhymnia
 
 # Events of one cycle, ordered by onset — the shape most assertions want.
@@ -105,6 +106,24 @@ spans(p, c = 0) = [(ev.extent.b, ev.extent.e) for ev in cyc(p, c)]
         @test 10 <= val <= 110
     end
 
+    @testset "event helpers" begin
+        ev = onset_events(m"bd" |> gain(0.5))[1]
+        @test controls_of(ev) isa Controls
+        @test controls_of(ev)[:s] == "bd"
+        # a bare value is promoted the same way `ensure_controls` promotes one
+        bare = onset_events(m"bd")[1]
+        @test controls_of(bare) == Controls(:s => "bd")
+
+        @test event_label(ev) == "bd"
+        @test event_label(onset_events(note("c3"))[1]) == "c3"
+        @test event_label(Controls()) == "?"
+
+        # ordered by onset, across as many cycles as asked for
+        @test [Float64(e.extent.b) for e in onset_events(m"bd [sd sd]", 0, 2)] == [0.0, 0.5, 0.75, 1.0, 1.5, 1.75]
+        @test length(onset_events(m"bd sd", 1)) == 2
+        @test isempty(onset_events(silence))
+    end
+
     @testset "pitch" begin
         @test to_freq("c4") ≈ 261.6 atol = 1.0
         @test to_freq("a4") ≈ 440.0 atol = 1.0
@@ -139,6 +158,21 @@ spans(p, c = 0) = [(ev.extent.b, ev.extent.e) for ev in cyc(p, c)]
         end
 
         @test isempty(render_voice(Controls(:s => "sine", :note => "bogus"), 0.2))
+
+        @test sound_name(Controls(:s => "saw")) == "saw"
+        @test sound_name(Controls(:s => "bd:3")) == "bd"    # Strudel sample suffix
+        @test sound_name(Controls()) == "sine"
+
+        # `voice_freq` is what `_render_voice` pitches the oscillator by, so a
+        # drawing that asks it cannot disagree with what is synthesised.
+        @test voice_freq(Controls(:note => "a4")) ≈ 440.0 atol = 1e-6
+        @test voice_freq(Controls(:n => "a4")) ≈ 440.0 atol = 1e-6
+        @test voice_freq(Controls(:note => "a4", :speed => 2)) ≈ 880.0 atol = 1e-6
+        @test voice_freq(Controls()) ≈ to_freq("c4")         # default pitch
+        @test voice_freq(Controls(:s => "bd", :note => "a4")) == 0.0
+        @test first(
+            voice_stages(Controls(:s => "saw", :note => "a4", :speed => 2), 0.2)[1],
+        ) == "osc \"saw\" @ 880.0 Hz"
     end
 
     @testset "voice stages" begin
@@ -257,6 +291,25 @@ spans(p, c = 0) = [(ev.extent.b, ev.extent.e) for ev in cyc(p, c)]
         @test length(mono) == 44 + size(buf, 1) * 2
         @test reinterpret(UInt16, mono[23:24])[1] == 1
         @test reinterpret(UInt16, bytes[23:24])[1] == 2
+    end
+
+    @testset "packaging" begin
+        # The point of the split: `using Polyhymnia` must not drag in Pluto.
+        # Nothing in src/ imports it — the widgets return `Base.HTML`, which any
+        # text/html renderer displays — so a second frontend costs nothing here.
+        root = joinpath(@__DIR__, "..")
+        deps = TOML.parsefile(joinpath(root, "Project.toml"))["deps"]
+        for pkg in ("Pluto", "PlutoUI", "AbstractPlutoDingetjes")
+            @test !haskey(deps, pkg)
+        end
+        for f in readdir(joinpath(root, "src"); join = true)
+            src = read(f, String)
+            @test !occursin(r"^\s*(using|import)\s+.*Pluto"m, src)
+        end
+        # ...and the notebook environment is where it went.
+        nb = TOML.parsefile(joinpath(root, "notebooks", "Project.toml"))
+        @test haskey(nb["deps"], "Pluto")
+        @test nb["sources"]["Polyhymnia"]["path"] == ".."
     end
 
     @testset "notebook helpers" begin

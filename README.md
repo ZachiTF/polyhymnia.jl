@@ -23,7 +23,7 @@ Requires **Julia 1.11 or newer**.
 
 ```bash
 git clone <this repo> && cd polyhymnia.jl
-julia -t auto --project=. run.jl
+julia -t auto run.jl
 ```
 
 That instantiates the environment and opens `notebooks/polyhymnia.jl` in Pluto.
@@ -34,7 +34,7 @@ underneath you.
 as you like:
 
 ```bash
-julia -t auto --project=. run.jl scales     # opens notebooks/scales.jl
+julia -t auto run.jl scales     # opens notebooks/scales.jl
 ```
 
 `-t auto` matters only for the PortAudio backend, which needs a spare thread to
@@ -212,12 +212,19 @@ src/
   voices.jl         events -> samples, via Euterpe's oscillators
   engine.jl         cycles -> stereo buffers; tempo and pattern state
   sinks.jl          PortAudio streaming and WebAudio looping
-  pluto.jl          player widget, piano roll, WAV export
+  pluto.jl          player widget, scopes, piano roll, WAV export
 notebooks/
+  Project.toml      the notebook environment: Pluto lives here, not in the
+                    package, which imports nothing from it
   polyhymnia.jl     the live-coding page (the default)
 test/runtests.jl
 run.jl              launches Pluto on a notebook
 ```
+
+Nothing in `src/` imports Pluto. The widgets return `Base.HTML`, which any
+`text/html` renderer displays, so the library works from a plain script, a
+server, or another notebook system — and `using Polyhymnia` does not pull
+Pluto's tree in behind it.
 
 ## Development
 

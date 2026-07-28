@@ -30,7 +30,7 @@ function render_cycles(
     events = pat.query(Span(Time(from), Time(to)))
     for ev in events
         has_onset(ev) || continue          # only trigger on a note's true start
-        ctl = ev.value isa Controls ? ev.value : as_controls(:s, ev.value)
+        ctl = controls_of(ev)
         ext = ev.extent::Span
 
         offset = round(Int, Float64(ext.b - Time(from)) / cps * sr)
@@ -95,7 +95,7 @@ function render_stems(tracks, from::Real = 0, to::Real = 4; ceiling::Real = 0.95
 end
 
 _named_tracks(tracks) = [_named_track(i, t) for (i, t) in enumerate(tracks)]
-_named_track(i::Int, t::Pair) = string(first(t)) => to_pattern(last(t))
+_named_track(::Int, t::Pair) = string(first(t)) => to_pattern(last(t))
 _named_track(i::Int, t) = "track $i" => to_pattern(t)
 
 """

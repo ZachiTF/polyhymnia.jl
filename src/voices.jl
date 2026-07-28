@@ -213,6 +213,35 @@ end
 # ----------------------------------------------------------- voice assembly
 
 """
+    sound_name(ctl) -> String
+
+The waveform or drum a control bag selects. `"bd:3"`-style suffixes pick a
+sample in Strudel; being a synthesiser, we only need the name in front.
+"""
+sound_name(ctl::Controls) = String(split(string(get(ctl, :s, "sine")), ':')[1])
+
+"""
+    voice_freq(ctl) -> Float64
+
+The frequency this control bag will sound at, after `speed`, or 0 for a
+percussion voice — whose noise-and-decay synthesis has no single frequency.
+
+`_render_voice` reads its pitch from here, so anything drawing a voice can ask
+the same question and get the answer the synth will actually use.
+"""
+function voice_freq(ctl::Controls)
+    is_drum(sound_name(ctl)) && return 0.0
+    base = if haskey(ctl, :note)
+        to_freq(ctl[:note])
+    elseif haskey(ctl, :n)
+        to_freq(ctl[:n])
+    else
+        to_freq("c4")
+    end
+    base * Float64(get(ctl, :speed, 1.0))
+end
+
+"""
     render_voice(ctl, dur, sr) -> Vector{Float64}
 
 Turn one event's control bag into mono samples. `dur` is the event's length in
@@ -243,9 +272,7 @@ _hz(x) = string(round(Float64(x), digits = x < 100 ? 2 : 1), " Hz")
 
 function _render_voice(ctl::Controls, dur::Real, sr::Int, tap)
     dur = max(Float64(dur), 1 / sr)
-    name = string(get(ctl, :s, "sine"))
-    # "bd:3"-style suffixes select a sample in Strudel; we only need the name.
-    name = split(name, ':')[1]
+    name = sound_name(ctl)
 
     gain = Float64(get(ctl, :gain, 0.8))
     legato = Float64(get(ctl, :legato, 1.0))
@@ -256,20 +283,13 @@ function _render_voice(ctl::Controls, dur::Real, sr::Int, tap)
         _tap(tap, "drum \"$name\"", drum)
         drum
     else
-        freq = if haskey(ctl, :note)
-            to_freq(ctl[:note])
-        elseif haskey(ctl, :n)
-            to_freq(ctl[:n])
-        else
-            to_freq("c4")
-        end
+        freq = voice_freq(ctl)
         freq <= 0 && return Float64[]
 
-        speed = Float64(get(ctl, :speed, 1.0))
         rel = Float64(get(ctl, :release, 0.1))
         total = sounding + rel
-        osc = oscillator(name, freq * speed, total, sr)
-        _tap(tap, "osc \"$name\" @ $(_hz(freq * speed))", osc)
+        osc = oscillator(name, freq, total, sr)
+        _tap(tap, "osc \"$name\" @ $(_hz(freq))", osc)
         env = adsr_envelope(
             length(osc),
             sr;

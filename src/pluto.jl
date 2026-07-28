@@ -120,6 +120,44 @@ end
 # Let an engine be called directly: `engine("bd*4")`.
 (e::Engine)(pat) = play!(e, pat)
 
+# --------------------------------------------------------------- audio glue
+
+# The JavaScript both widgets need, in one place so the player and the scopes
+# cannot disagree about who owns the audio graph. Interpolated into each
+# widget's <script>; `G` is the shared state parked on `window._polyhymnia`,
+# which is what lets a Pluto re-run swap buffers on a running context instead of
+# stacking up a second one.
+const AUDIO_GLUE = """
+     const G = (window._polyhymnia = window._polyhymnia || {});
+     if (!G.ctx) {
+       G.ctx = new (window.AudioContext || window.webkitAudioContext)();
+       G.gain = G.ctx.createGain();
+       G.gain.connect(G.ctx.destination);
+     }
+     const ctx = G.ctx;
+
+     // Stop whatever is sounding, whichever widget started it: one buffer from
+     // `webaudio` or a list of stems from `scope`. Passing a time stops them
+     // exactly when the replacement starts — stopping immediately instead would
+     // leave silence from now until the boundary the new audio begins on.
+     function phStop(at) {
+       const kill = s => { try { at == null ? s.stop() : s.stop(at); } catch (e) {} };
+       if (G.src) { kill(G.src); G.src = null; }
+       (G.srcs || []).forEach(kill);
+       G.srcs = [];
+     }
+
+     // The loop boundary an edit should land on, so it arrives musically rather
+     // than mid-note. Falls back to "as soon as possible" when nothing plays:
+     // stopping clears `startTime`, so a cold start does not wait for a phantom
+     // boundary left behind by a previous run.
+     function phBoundary() {
+       const soon = ctx.currentTime + 0.06;
+       if (G.startTime == null || !(G.dur > 0)) return soon;
+       return G.startTime + Math.ceil((soon - G.startTime) / G.dur) * G.dur;
+     }
+"""
+
 # ------------------------------------------------------------- browser audio
 
 """
@@ -161,48 +199,31 @@ function webaudio(e::Engine = live(); cycles::Union{Int,Nothing} = nothing)
      const btn = root.querySelector("#ph-toggle");
      const status = root.querySelector("#ph-status");
      const uri = "$(uri)";
-
-     const G = (window._polyhymnia = window._polyhymnia || {});
-     if (!G.ctx) {
-       G.ctx = new (window.AudioContext || window.webkitAudioContext)();
-       G.gain = G.ctx.createGain();
-       G.gain.connect(G.ctx.destination);
-     }
-     const ctx = G.ctx;
-
+$(AUDIO_GLUE)
      function label() {
        btn.textContent = G.playing ? "stop" : "play";
      }
 
-     // Swap the looping buffer, aligned to the current loop's boundary so an
-     // edit lands musically rather than mid-note.
+     // Swap the looping buffer on the loop boundary. `phStop(at)` hands the
+     // graph over from whatever was playing — including `scope`'s stems — so
+     // the two widgets never stack on top of each other.
      function swap(buf) {
        const src = ctx.createBufferSource();
        src.buffer = buf;
        src.loop = true;
        src.connect(G.gain);
 
-       const now = ctx.currentTime;
-       let at = now + 0.06;
-       if (G.src && G.startTime != null && G.dur > 0) {
-         const k = Math.ceil((now + 0.06 - G.startTime) / G.dur);
-         at = G.startTime + k * G.dur;
-       }
+       const at = phBoundary();
        src.start(at);
-       if (G.src) { try { G.src.stop(at); } catch (e) {} }
-       // `scope` may be holding the graph instead; hand playback over rather
-       // than stacking two players on top of each other.
-       (G.srcs || []).forEach(s => { try { s.stop(at); } catch (e) {} });
-       G.srcs = [];
+       phStop(at);
        G.src = src;
        G.startTime = at;
        G.dur = buf.duration;
      }
 
      function stopAll() {
-       if (G.src) { try { G.src.stop(); } catch (e) {} }
-       (G.srcs || []).forEach(s => { try { s.stop(); } catch (e) {} });
-       G.src = null; G.srcs = []; G.startTime = null; G.playing = false; label();
+       phStop(null);
+       G.startTime = null; G.playing = false; label();
      }
 
      const decoded = fetch(uri)
@@ -317,23 +338,6 @@ end
 # ------------------------------------------------------- signal-chain view
 
 """
-The fundamental this control bag will sound at, or 0 for percussion (whose
-noise-and-decay synthesis has no single frequency to zoom to).
-"""
-function voice_freq(ctl::Controls)
-    name = split(string(get(ctl, :s, "sine")), ':')[1]
-    is_drum(name) && return 0.0
-    f = if haskey(ctl, :note)
-        to_freq(ctl[:note])
-    elseif haskey(ctl, :n)
-        to_freq(ctl[:n])
-    else
-        to_freq("c4")
-    end
-    f * Float64(get(ctl, :speed, 1.0))
-end
-
-"""
     signal_chain(pat; event, cycle, cps, width, periods) -> HTML
 
 Take one event out of `pat` and show what every stage of the synth does to it:
@@ -353,14 +357,12 @@ function signal_chain(
     periods::Real = 4,
 )
     note_ = """style="font-family:ui-monospace,monospace;color:#8a8a9a;padding:8px" """
-    p = to_pattern(pat)
-    evs = filter(has_onset, p.query(Span(Time(cycle), Time(cycle + 1))))
+    evs = onset_events(pat, cycle)
     isempty(evs) && return HTML("<div $note_>(no events in cycle $cycle)</div>")
-    sort!(evs; by = ev -> ev.extent.b)
 
     idx = clamp(event, 1, length(evs))
     ev = evs[idx]
-    ctl = ev.value isa Controls ? ev.value : as_controls(:s, ev.value)
+    ctl = controls_of(ev)
     dur = Float64(duration(ev.extent)) / cps
 
     stages = voice_stages(ctl, dur)
@@ -387,7 +389,7 @@ function signal_chain(
     top, foot = 26, 20
     h = top + rowh * length(stages) + foot
 
-    label = string(get(ctl, :s, get(ctl, :note, get(ctl, :n, "?"))))
+    label = event_label(ctl)
     head =
         "$(_esc(label)) · event $idx/$(length(evs)) of cycle $cycle · " *
         "$(round(dur * 1000, digits = 1)) ms · $(length(final)) samples"
@@ -458,13 +460,11 @@ A Strudel-style piano roll: one row per distinct sound, time running left to
 right. Useful for seeing what a pattern does before committing your ears.
 """
 function pattern_plot(pat; cycles::Int = 2, width::Int = 640, height::Int = 160)
-    p = to_pattern(pat)
-    events = filter(has_onset, p.query(Span(Time(0), Time(cycles))))
+    events = onset_events(pat, 0, cycles)
 
     labels = String[]
     for ev in events
-        ctl = ev.value isa Controls ? ev.value : as_controls(:s, ev.value)
-        lab = string(get(ctl, :s, get(ctl, :note, get(ctl, :n, "?"))))
+        lab = event_label(ev)
         lab in labels || push!(labels, lab)
     end
     isempty(labels) && return HTML("""<div style="font-family:ui-monospace,monospace;
@@ -494,9 +494,8 @@ function pattern_plot(pat; cycles::Int = 2, width::Int = 640, height::Int = 160)
     end
 
     for ev in events
-        ctl = ev.value isa Controls ? ev.value : as_controls(:s, ev.value)
-        lab = string(get(ctl, :s, get(ctl, :note, get(ctl, :n, "?"))))
-        row = findfirst(==(lab), labels)
+        ctl = controls_of(ev)
+        row = findfirst(==(event_label(ctl)), labels)
         ext = ev.extent::Span
         x = width * Float64(ext.b) / cycles
         bw = max(width * Float64(duration(ext)) / cycles - 2, 2.0)
@@ -661,26 +660,13 @@ function scope(
       const btn = root.querySelector("#ph-scope-toggle");
       const status = root.querySelector("#ph-scope-status");
 
-      const G = (window._polyhymnia = window._polyhymnia || {});
-      if (!G.ctx) {
-        G.ctx = new (window.AudioContext || window.webkitAudioContext)();
-        G.gain = G.ctx.createGain();
-        G.gain.connect(G.ctx.destination);
-      }
-      const ctx = G.ctx;
-
+$(AUDIO_GLUE)
       const state = tracks.map(() => ({ mute: false, solo: false }));
       let nodes = [];          // per-track {gain, analyser, data} for this cell
       let raf = null;
       let dead = false;
 
       const label = () => { btn.textContent = G.playing ? "stop" : "play"; };
-
-      function stopSources() {
-        if (G.src) { try { G.src.stop(); } catch (e) {} G.src = null; }
-        (G.srcs || []).forEach(s => { try { s.stop(); } catch (e) {} });
-        G.srcs = [];
-      }
 
       function applyGains() {
         const anySolo = state.some(s => s.solo);
@@ -707,7 +693,7 @@ function scope(
           fresh.push({ src: src, gain: g, analyser: an,
                        data: new Float32Array(an.fftSize) });
         });
-        stopSources();
+        phStop(at);
         G.srcs = fresh.map(n => n.src);
         G.startTime = at;
         G.dur = bufs[0].duration;
@@ -722,21 +708,14 @@ function scope(
         G.buffers = bufs;
         // Already playing from a previous run? Land the swap on the loop
         // boundary so an edit never cuts a note in half.
-        if (G.playing) {
-          const now = ctx.currentTime;
-          let at = now + 0.06;
-          if (G.startTime != null && G.dur > 0) {
-            at = G.startTime + Math.ceil((at - G.startTime) / G.dur) * G.dur;
-          }
-          startAt(bufs, at);
-        }
+        if (G.playing) startAt(bufs, phBoundary());
         label();
       }).catch(err => { status.textContent = "decode failed: " + err; });
 
       btn.onclick = async () => {
         if (ctx.state === "suspended") await ctx.resume();
         if (G.playing) {
-          stopSources();
+          phStop(null);
           G.playing = false; G.startTime = null; nodes = [];
           label();
           return;
