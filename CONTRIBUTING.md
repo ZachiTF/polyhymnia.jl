@@ -7,7 +7,9 @@ Euterpe dependency through a `[sources]` entry, which is a 1.11 feature.
 
 ```bash
 git clone <this repo> && cd polyhymnia.jl
-julia --project=. -e 'using Pkg; Pkg.instantiate()'
+julia --project=. -e 'using Pkg; Pkg.instantiate()'   # the package
+julia run.jl                                          # or just this: it
+                                                      # instantiates notebooks/
 ```
 
 Then install the hooks, once per clone:
@@ -70,12 +72,22 @@ julia -e 'using JuliaFormatter; format(["src", "test", "run.jl"])'
 
 ## Notebooks
 
-`notebooks/` holds runnable examples. `run.jl` takes the notebook to open, so
+`notebooks/` holds runnable examples, and its own `Project.toml`: the notebook
+stack (Pluto, PlutoUI) is *not* a dependency of the package. Nothing in `src/`
+imports Pluto — the widgets return `Base.HTML`, which any `text/html` renderer
+displays — so the library stays usable from a plain script, a server, or a
+different notebook system. Polyhymnia comes into that environment as a path
+dependency, which carries the Euterpe pin from `../Project.toml` with it.
+
+A test asserts the split holds, so adding `using Pluto` to `src/` fails CI
+rather than quietly re-coupling the two.
+
+`run.jl` activates `notebooks/` itself and takes the notebook to open, so
 adding one costs nothing:
 
 ```bash
-julia --project=. run.jl            # notebooks/polyhymnia.jl, the default
-julia --project=. run.jl scales     # notebooks/scales.jl
+julia run.jl            # notebooks/polyhymnia.jl, the default
+julia run.jl scales     # notebooks/scales.jl
 ```
 
 Two rules, both because Pluto owns the exact bytes of these files:

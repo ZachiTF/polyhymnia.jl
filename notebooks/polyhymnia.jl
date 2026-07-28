@@ -19,8 +19,10 @@ end
 # ╔═╡ a1000000-0000-4000-8000-000000000002
 begin
     import Pkg
-    # Use the project's environment rather than Pluto's own package manager.
-    Pkg.activate(dirname(@__DIR__))
+    # Use the notebook environment rather than Pluto's own package manager.
+    # It sits next to this file and pulls Polyhymnia in as a path dependency;
+    # the package itself does not depend on Pluto.
+    Pkg.activate(@__DIR__)
     using Polyhymnia
     using PlutoUI
 end

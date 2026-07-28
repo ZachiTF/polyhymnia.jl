@@ -1,17 +1,24 @@
 #!/usr/bin/env julia
 # Launch a Polyhymnia notebook.
 #
-#   julia --project=. run.jl                  # opens notebooks/polyhymnia.jl
-#   julia --project=. run.jl scales           # opens notebooks/scales.jl
-#   julia --project=. run.jl path/to/nb.jl    # opens an explicit path
+#   julia run.jl                  # opens notebooks/polyhymnia.jl
+#   julia run.jl scales           # opens notebooks/scales.jl
+#   julia run.jl path/to/nb.jl    # opens an explicit path
 #
 # Opens Pluto on the live-coding page. Pass --no-browser to only print the URL.
+#
+# No `--project` needed: Pluto is not a dependency of the package, so this
+# activates `notebooks/`, the environment that has it. Polyhymnia comes in from
+# there as a path dependency, which also carries the Euterpe pin along.
+
+const NOTEBOOK_DIR = joinpath(@__DIR__, "notebooks")
 
 import Pkg
-Pkg.activate(@__DIR__)
+Pkg.activate(NOTEBOOK_DIR)
 
 # Instantiate on first run so a fresh clone just works. Euterpe is unregistered
-# and pinned in Project.toml's [sources], so this resolves without a Manifest.
+# and pinned in ../Project.toml's [sources], which Pkg reads through the path
+# dependency, so this resolves without a committed Manifest.
 try
     Pkg.instantiate()
 catch err
@@ -20,8 +27,6 @@ catch err
 end
 
 import Pluto
-
-const NOTEBOOK_DIR = joinpath(@__DIR__, "notebooks")
 const DEFAULT_NOTEBOOK = "polyhymnia"
 
 notebook_names() =
