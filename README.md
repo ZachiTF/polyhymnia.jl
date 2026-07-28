@@ -144,6 +144,43 @@ query_cycle(m"bd sd", 0)              # the events of cycle 0
 render_cycles(pat, 0, 4; cps = 0.5)   # an n x 2 stereo buffer
 ```
 
+## Seeing the sound
+
+Three views, from the outside in.
+
+`pattern_plot` is the piano roll: which sound happens when, before you commit
+your ears.
+
+`scope` plays a *list* of tracks and visualises each one separately. Every track
+is rendered to its own buffer and gets its own node in the browser's audio graph,
+so it can be metered, muted, soloed and scoped on its own — the sum is exactly
+what the mixed pattern would have played.
+
+```julia
+tracks = ["drums" => m"bd*2 sd", "bass" => note("c2 g2") |> sound("saw")]
+scope(engine, tracks, cycles = 2)
+```
+
+Each row shows the whole loop as a waveform with a playhead running across it,
+plus an oscilloscope reading real samples off an `AnalyserNode` as they play.
+The audio has to live in the browser for that, so `scope` visualises the
+`WebAudioSink` path; under `PortAudioSink` the samples never leave Julia. Per-
+track audio also means the payload grows with `cycles x tracks` — that keyword
+is the dial if edits start to feel sticky.
+
+`signal_chain` goes one level deeper, to a single note:
+
+```julia
+signal_chain(engine, note("c2") |> sound("saw") |> cutoff(400) |> gain(0.5), event = 1)
+```
+
+It renders one event and draws the signal after every stage of the synth — raw
+oscillator, ADSR envelope, their product, each filter, the gain — in the order
+the chain applies them. Left is the whole note, right zooms to a few periods of
+the fundamental so the wave shape itself is legible. The stages come from
+`voice_stages`, which shares its code path with `render_voice`, so the picture
+cannot drift away from what you hear.
+
 ## Notes on Euterpe
 
 Euterpe.jl supplies the oscillators (`sine`, `square`, `sawtooth`) and the note

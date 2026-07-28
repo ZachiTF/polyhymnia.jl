@@ -141,6 +141,41 @@ spans(p, c = 0) = [(ev.extent.b, ev.extent.e) for ev in cyc(p, c)]
         @test isempty(render_voice(Controls(:s => "sine", :note => "bogus"), 0.2))
     end
 
+    @testset "voice stages" begin
+        ctl = Controls(
+            :s => "saw",
+            :note => "c2",
+            :gain => 0.5,
+            :cutoff => 800,
+            :hcutoff => 60,
+            :shape => 0.3,
+        )
+        st = voice_stages(ctl, 0.4)
+        names = first.(st)
+        @test any(n -> startswith(n, "osc \"saw\""), names)
+        @test "adsr envelope" in names
+        @test "osc × envelope" in names
+        @test any(n -> startswith(n, "lowpass"), names)
+        @test any(n -> startswith(n, "highpass"), names)
+        @test any(n -> startswith(n, "shape"), names)
+        @test any(n -> startswith(n, "gain"), names)
+
+        # The inspector must show exactly what the synth produces.
+        @test last(st[end]) == render_voice(ctl, 0.4)
+        @test all(length(b) == length(last(st[end])) for (_, b) in st)
+
+        # Stages appear in the order the chain applies them, and only when used.
+        plain = first.(voice_stages(Controls(:s => "sine", :note => "a4"), 0.2))
+        @test plain ==
+              ["osc \"sine\" @ 440.0 Hz", "adsr envelope", "osc × envelope", "gain 0.8"]
+
+        drum = voice_stages(Controls(:s => "bd", :gain => 0.9), 0.25)
+        @test first(drum[1]) == "drum \"bd\""
+        @test last(drum[end]) == render_voice(Controls(:s => "bd", :gain => 0.9), 0.25)
+
+        @test isempty(voice_stages(Controls(:s => "sine", :note => "bogus"), 0.2))
+    end
+
     @testset "rendering" begin
         buf = render_cycles(m"bd sd hh*2" |> gain(0.8), 0, 2; cps = 0.5)
         @test size(buf, 2) == 2
@@ -156,6 +191,37 @@ spans(p, c = 0) = [(ev.extent.b, ev.extent.e) for ev in cyc(p, c)]
 
         lim = limit!(fill(5.0, 10, 2))
         @test maximum(abs, lim) <= 0.95 + 1e-9
+    end
+
+    @testset "stems" begin
+        tracks = [
+            "bass" => note("c2 g2") |> sound("saw") |> gain(0.9),
+            "keys" => note("c4 e4 g4") |> sound("tri") |> gain(0.9),
+        ]
+        stems = render_stems(tracks, 0, 2; cps = 0.5, tail = 2.0, wrap = true)
+        @test first.(stems) == ["bass", "keys"]
+        @test all(size(b, 2) == 2 for (_, b) in stems)
+
+        # Summing the stems has to reproduce the limited mix, or the picture and
+        # the sound disagree. (Only exact for voices that do not use noise.)
+        mix = sum(last.(stems))
+        ref = limit!(
+            render_cycles(
+                overlay(last.(tracks)...),
+                0,
+                2;
+                cps = 0.5,
+                tail = 2.0,
+                wrap = true,
+            ),
+        )
+        @test maximum(abs, mix .- ref) < 1e-12
+        @test maximum(abs, mix) <= 0.95 + 1e-9
+
+        # Unnamed tracks get positional names.
+        @test first.(render_stems([m"bd", m"sd"], 0, 1; cps = 1.0)) ==
+              ["track 1", "track 2"]
+        @test isempty(render_stems([], 0, 1; cps = 1.0))
     end
 
     @testset "engine and sinks" begin
@@ -185,6 +251,12 @@ spans(p, c = 0) = [(ev.extent.b, ev.extent.e) for ev in cyc(p, c)]
         @test String(bytes[1:4]) == "RIFF"
         @test String(bytes[9:12]) == "WAVE"
         @test length(bytes) == 44 + size(buf, 1) * 4
+
+        # A vector encodes as mono: half the bytes, one channel in the header.
+        mono = wav_bytes(view(buf, :, 1))
+        @test length(mono) == 44 + size(buf, 1) * 2
+        @test reinterpret(UInt16, mono[23:24])[1] == 1
+        @test reinterpret(UInt16, bytes[23:24])[1] == 2
     end
 
     @testset "notebook helpers" begin
@@ -197,5 +269,34 @@ spans(p, c = 0) = [(ev.extent.b, ev.extent.e) for ev in cyc(p, c)]
         e = Engine(m"bd"; cps = 1.0, sink = WebAudioSink(cycles = 1))
         @test occursin("data:audio/wav;base64,", repr("text/html", webaudio(e)))
         @test occursin("cps", repr("text/html", transport(e)))
+
+        # peaks bracket the signal they summarise
+        mins, maxs = peaks(sin.(range(0, 8π, length = 5000)), 40)
+        @test length(mins) == length(maxs) == 40
+        @test all(mins .<= maxs)
+        @test maximum(maxs) ≈ 1.0 atol = 0.01
+        @test peaks(Float64[], 8) == (zeros(8), zeros(8))
+
+        chain = repr(
+            "text/html",
+            signal_chain(note("c3 e3") |> sound("saw") |> gain(0.4); cps = 1.0),
+        )
+        @test occursin("osc &quot;saw&quot;", chain)
+        @test occursin("gain 0.4", chain)
+        @test occursin("event 1/2 of cycle 0", chain)
+        # out-of-range picks clamp rather than throw
+        @test occursin("event 2/2", repr("text/html", signal_chain(m"bd sd"; event = 9)))
+        @test occursin("no events", repr("text/html", signal_chain(silence)))
+
+        sc = repr(
+            "text/html",
+            scope(e, ["drums" => m"bd sd", "hats" => m"hh*4"]; cycles = 1),
+        )
+        @test occursin("data:audio/wav;base64,", sc)
+        @test occursin("drums", sc) && occursin("hats", sc)
+        @test occursin("2 tracks", sc)
+        @test occursin("(no tracks)", repr("text/html", scope(e, [])))
+        # the engine follows what the scope is playing
+        @test length(query_cycle(e.pattern[], 0)) == 6
     end
 end
