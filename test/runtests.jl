@@ -138,6 +138,36 @@ spans(p, c = 0) = [(ev.extent.b, ev.extent.e) for ev in cyc(p, c)]
         @test_throws Polyhymnia.MiniError mini("bd ]")
     end
 
+    @testset "polymeter" begin
+        # a single layer at its own step count is just a sequence
+        @test spans(m"{a b c}") == spans(m"a b c")
+        @test vals(m"{a b c}") == ["a", "b", "c"]
+
+        # %n sets the steps per cycle; two steps at four per cycle repeat twice
+        @test vals(m"{d e}%4") == ["d", "e", "d", "e"]
+        @test spans(m"{d e}%4") ==
+              [(0 // 1, 1 // 4), (1 // 4, 1 // 2), (1 // 2, 3 // 4), (3 // 4, 1 // 1)]
+
+        # two steps at three per cycle do not fit, so the layer drifts and only
+        # comes back round on the second cycle
+        @test vals(m"{d e}%3", 0) == ["d", "e", "d"]
+        @test vals(m"{d e}%3", 1) == ["e", "d", "e"]
+        @test vals(m"{d e}%3", 2) == ["d", "e", "d"]
+
+        # the first layer sets the rate for the rest
+        @test length(cyc(m"{a b c, d e}")) == 6
+        @test length(cyc(m"{a b, c}")) == 4
+
+        # a three-step layer held to two steps a cycle takes three halves of a
+        # cycle to get through itself
+        @test vals(m"{a b c}%2", 0) == ["a", "b"]
+        @test vals(m"{a b c}%2", 1) == ["c", "a"]
+
+        @test isempty(cyc(m"{}"))
+        @test_throws Polyhymnia.MiniError mini("{a b")
+        @test_throws Polyhymnia.MiniError mini("a }")
+    end
+
     @testset "controls" begin
         ev = cyc(m"bd" |> gain(0.5))[1]
         @test ev.value isa Controls
