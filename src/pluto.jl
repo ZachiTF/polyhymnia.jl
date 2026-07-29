@@ -8,6 +8,34 @@
 
 using Base64: base64encode
 
+# ----------------------------------------------------------------- palette
+
+"""
+The one place a colour is named. Every widget below interpolates from here, so
+a second front end — or a light mode — is a matter of rebinding this constant
+rather than hunting hex codes through a few hundred lines of HTML, SVG and
+canvas drawing.
+"""
+const THEME = (
+    bg = "#16161e",         # a panel's own background
+    inset = "#1c1c26",      # a well inside a panel: track rows, canvases
+    border = "#3a3a4a",     # panel edges and the zero line of a waveform
+    fg = "#c8c8d4",         # body text
+    dim = "#8a8a9a",        # secondary text, and a button at rest
+    faint = "#6a6a7a",      # axis numbers, units, peak readouts
+    accent = "#7aa2f7",     # the blue anything active is drawn in
+    on_accent = "#16161e",  # text sitting on accent, alert or warn
+    warn = "#e0af68",       # solo engaged
+    alert = "#f7768e",      # mute engaged
+    trace = "#ffffff",      # the playhead, over inset
+)
+
+# Per-track and per-stage colours, cycled. The first is the accent, so a single
+# track or a one-stage chain matches the rest of the interface rather than
+# looking like an arbitrary choice.
+const PALETTE =
+    [THEME.accent, "#9ece6a", THEME.warn, "#bb9af7", "#7dcfff", THEME.alert, "#73daca"]
+
 # ------------------------------------------------------------ WAV encoding
 
 """
@@ -184,10 +212,10 @@ function webaudio(e::Engine = live(); cycles::Union{Int,Nothing} = nothing)
     HTML(
         """
    <div class="polyhymnia-player" style="font-family:ui-monospace,monospace;
-        border:1px solid #3a3a4a;border-radius:8px;padding:10px 12px;
-        background:#16161e;color:#c8c8d4;display:flex;gap:10px;align-items:center">
+        border:1px solid $(THEME.border);border-radius:8px;padding:10px 12px;
+        background:$(THEME.bg);color:$(THEME.fg);display:flex;gap:10px;align-items:center">
      <button id="ph-toggle" style="font:inherit;cursor:pointer;border:0;
-             border-radius:5px;padding:5px 12px;background:#7aa2f7;color:#16161e;
+             border-radius:5px;padding:5px 12px;background:$(THEME.accent);color:$(THEME.on_accent);
              font-weight:600">play</button>
      <span id="ph-status" style="opacity:.75;font-size:12px">
        $(round(dur, digits=2))s loop · $(sink.cycles) cycles · $(round(e.cps[], digits=3)) cps
@@ -256,9 +284,6 @@ $(AUDIO_GLUE)
 end
 
 # -------------------------------------------------------- waveform drawing
-
-const PALETTE =
-    ["#7aa2f7", "#9ece6a", "#e0af68", "#bb9af7", "#7dcfff", "#f7768e", "#73daca"]
 
 _esc(x) = replace(string(x), "&" => "&amp;", "<" => "&lt;", ">" => "&gt;", "\"" => "&quot;")
 
@@ -356,7 +381,7 @@ function signal_chain(
     rowh::Int = 58,
     periods::Real = 4,
 )
-    note_ = """style="font-family:ui-monospace,monospace;color:#8a8a9a;padding:8px" """
+    note_ = """style="font-family:ui-monospace,monospace;color:$(THEME.dim);padding:8px" """
     evs = onset_events(pat, cycle)
     isempty(evs) && return HTML("<div $note_>(no events in cycle $cycle)</div>")
 
@@ -399,9 +424,12 @@ function signal_chain(
         io,
         """<svg xmlns="http://www.w3.org/2000/svg" width="$width" height="$h"
   viewBox="0 0 $width $h"
-  style="background:#16161e;border-radius:8px;font-family:ui-monospace,monospace">""",
+  style="background:$(THEME.bg);border-radius:8px;font-family:ui-monospace,monospace">""",
     )
-    print(io, """<text x="$pad" y="16" fill="#7aa2f7" font-size="11">$head</text>""")
+    print(
+        io,
+        """<text x="$pad" y="16" fill="$(THEME.accent)" font-size="11">$head</text>""",
+    )
 
     for (i, (name, buf)) in enumerate(stages)
         y = top + (i - 1) * rowh
@@ -411,17 +439,17 @@ function signal_chain(
 
         print(
             io,
-            """<text x="$pad" y="$(y + ph / 2 - 4)" fill="#c8c8d4" font-size="10.5"
+            """<text x="$pad" y="$(y + ph / 2 - 4)" fill="$(THEME.fg)" font-size="10.5"
         dominant-baseline="middle">$(_esc(name))</text>""",
-            """<text x="$pad" y="$(y + ph / 2 + 9)" fill="#6a6a7a" font-size="9.5"
+            """<text x="$pad" y="$(y + ph / 2 + 9)" fill="$(THEME.faint)" font-size="9.5"
         dominant-baseline="middle">peak $(round(peak, digits = 3))</text>""",
         )
         for (x, w) in ((x1, fullw), (x2, detw))
             print(
                 io,
-                """<rect x="$x" y="$y" width="$w" height="$ph" rx="3" fill="#1c1c26"/>""",
+                """<rect x="$x" y="$y" width="$w" height="$ph" rx="3" fill="$(THEME.inset)"/>""",
                 """<line x1="$x" y1="$(y + ph / 2)" x2="$(x + w)" y2="$(y + ph / 2)"
-            stroke="#3a3a4a" stroke-width="1"/>""",
+            stroke="$(THEME.border)" stroke-width="1"/>""",
             )
         end
         # Show where the right-hand zoom is taken from.
@@ -431,7 +459,7 @@ function signal_chain(
             print(
                 io,
                 """<rect x="$zx" y="$y" width="$zw" height="$ph"
-            fill="#7aa2f7" fill-opacity="0.10"/>""",
+            fill="$(THEME.accent)" fill-opacity="0.10"/>""",
             )
         end
         print(io, _band_svg(buf, x1, y, fullw, ph, scale, colour))
@@ -443,7 +471,7 @@ function signal_chain(
         "$(round(periods, digits = 1)) periods of $(round(freq, digits = 1)) Hz" : "12 ms"
     print(
         io,
-        """<text x="$pad" y="$(h - 6)" fill="#6a6a7a" font-size="9.5">left: whole voice
+        """<text x="$pad" y="$(h - 6)" fill="$(THEME.faint)" font-size="9.5">left: whole voice
     · right: $zoomlab · vertical scale ±$(round(scale, digits = 2))</text></svg>""",
     )
     HTML(String(take!(io)))
@@ -468,7 +496,7 @@ function pattern_plot(pat; cycles::Int = 2, width::Int = 640, height::Int = 160)
         lab in labels || push!(labels, lab)
     end
     isempty(labels) && return HTML("""<div style="font-family:ui-monospace,monospace;
-        color:#8a8a9a;padding:8px">(silence)</div>""")
+        color:$(THEME.dim);padding:8px">(silence)</div>""")
 
     sort!(labels)
     rowh = max(height ÷ max(length(labels), 1), 14)
@@ -479,7 +507,7 @@ function pattern_plot(pat; cycles::Int = 2, width::Int = 640, height::Int = 160)
         io,
         """<svg xmlns="http://www.w3.org/2000/svg" width="$width" height="$h"
   viewBox="0 0 $width $h"
-  style="background:#16161e;border-radius:8px;font-family:ui-monospace,monospace">""",
+  style="background:$(THEME.bg);border-radius:8px;font-family:ui-monospace,monospace">""",
     )
 
     # cycle gridlines
@@ -488,9 +516,12 @@ function pattern_plot(pat; cycles::Int = 2, width::Int = 640, height::Int = 160)
         print(
             io,
             """<line x1="$x" y1="0" x2="$x" y2="$(h-24)"
-        stroke="#3a3a4a" stroke-width="1"/>""",
+        stroke="$(THEME.border)" stroke-width="1"/>""",
         )
-        print(io, """<text x="$(x+4)" y="$(h-8)" fill="#6a6a7a" font-size="10">$c</text>""")
+        print(
+            io,
+            """<text x="$(x+4)" y="$(h-8)" fill="$(THEME.faint)" font-size="10">$c</text>""",
+        )
     end
 
     for ev in events
@@ -513,7 +544,7 @@ function pattern_plot(pat; cycles::Int = 2, width::Int = 640, height::Int = 160)
         y = (i - 1) * rowh + rowh / 2 + 2
         print(
             io,
-            """<text x="6" y="$y" fill="#c8c8d4" font-size="11"
+            """<text x="6" y="$y" fill="$(THEME.fg)" font-size="11"
         dominant-baseline="middle">$lab</text>""",
         )
     end
@@ -560,7 +591,7 @@ function scope(
 )
     named = _named_tracks(tracks)
     isempty(named) && return HTML("""<div style="font-family:ui-monospace,monospace;
-        color:#8a8a9a;padding:8px">(no tracks)</div>""")
+        color:$(THEME.dim);padding:8px">(no tracks)</div>""")
 
     # Keep the engine in step so `transport`, `wav` and `hush` still describe
     # what you are hearing.
@@ -616,12 +647,12 @@ function scope(
              text-overflow:ellipsis">$(_esc(name))</div>
         <div style="display:flex;gap:4px;align-items:center;margin-top:3px">
           <button data-mute="$i" style="font:inherit;font-size:9px;cursor:pointer;
-                  border:1px solid #3a3a4a;border-radius:3px;padding:1px 5px;
-                  background:#1c1c26;color:#8a8a9a">m</button>
+                  border:1px solid $(THEME.border);border-radius:3px;padding:1px 5px;
+                  background:$(THEME.inset);color:$(THEME.dim)">m</button>
           <button data-solo="$i" style="font:inherit;font-size:9px;cursor:pointer;
-                  border:1px solid #3a3a4a;border-radius:3px;padding:1px 5px;
-                  background:#1c1c26;color:#8a8a9a">s</button>
-          <div style="flex:1;height:4px;background:#1c1c26;border-radius:2px;
+                  border:1px solid $(THEME.border);border-radius:3px;padding:1px 5px;
+                  background:$(THEME.inset);color:$(THEME.dim)">s</button>
+          <div style="flex:1;height:4px;background:$(THEME.inset);border-radius:2px;
                overflow:hidden"><div data-meter="$i" style="width:0%;height:100%;
                background:$colour"></div></div>
         </div>
@@ -634,13 +665,14 @@ function scope(
         )
     end
 
-    HTML("""
+    HTML(
+        """
     <div class="polyhymnia-scope" style="font-family:ui-monospace,monospace;
-         border:1px solid #3a3a4a;border-radius:8px;padding:10px 12px;
-         background:#16161e;color:#c8c8d4;width:$(width + 24)px;box-sizing:border-box">
+         border:1px solid $(THEME.border);border-radius:8px;padding:10px 12px;
+         background:$(THEME.bg);color:$(THEME.fg);width:$(width + 24)px;box-sizing:border-box">
       <div style="display:flex;gap:10px;align-items:center">
         <button id="ph-scope-toggle" style="font:inherit;cursor:pointer;border:0;
-                border-radius:5px;padding:5px 12px;background:#7aa2f7;color:#16161e;
+                border-radius:5px;padding:5px 12px;background:$(THEME.accent);color:$(THEME.on_accent);
                 font-weight:600">play</button>
         <span id="ph-scope-status" style="opacity:.75;font-size:12px">
           $(length(stems)) tracks · $(round(dur, digits=2))s loop · $cycles cycles ·
@@ -730,8 +762,8 @@ $(AUDIO_GLUE)
         b.onclick = () => {
           const i = +b.dataset.mute - 1;
           state[i].mute = !state[i].mute;
-          b.style.background = state[i].mute ? "#f7768e" : "#1c1c26";
-          b.style.color = state[i].mute ? "#16161e" : "#8a8a9a";
+          b.style.background = state[i].mute ? "$(THEME.alert)" : "$(THEME.inset)";
+          b.style.color = state[i].mute ? "$(THEME.on_accent)" : "$(THEME.dim)";
           applyGains();
         };
       });
@@ -739,8 +771,8 @@ $(AUDIO_GLUE)
         b.onclick = () => {
           const i = +b.dataset.solo - 1;
           state[i].solo = !state[i].solo;
-          b.style.background = state[i].solo ? "#e0af68" : "#1c1c26";
-          b.style.color = state[i].solo ? "#16161e" : "#8a8a9a";
+          b.style.background = state[i].solo ? "$(THEME.warn)" : "$(THEME.inset)";
+          b.style.color = state[i].solo ? "$(THEME.on_accent)" : "$(THEME.dim)";
           applyGains();
         };
       });
@@ -756,8 +788,8 @@ $(AUDIO_GLUE)
       function drawLoop(cv, t, phase) {
         const g = cv.getContext("2d");
         const w = cv.width, h = cv.height, mid = h / 2;
-        g.fillStyle = "#1c1c26"; g.fillRect(0, 0, w, h);
-        g.strokeStyle = "#3a3a4a"; g.lineWidth = 1;
+        g.fillStyle = "$(THEME.inset)"; g.fillRect(0, 0, w, h);
+        g.strokeStyle = "$(THEME.border)"; g.lineWidth = 1;
         g.beginPath(); g.moveTo(0, mid + 0.5); g.lineTo(w, mid + 0.5); g.stroke();
 
         const n = t.maxs.length;
@@ -773,7 +805,7 @@ $(AUDIO_GLUE)
 
         if (phase != null) {
           const x = Math.round(phase * w) + 0.5;
-          g.strokeStyle = "#ffffff"; g.globalAlpha = 0.8;
+          g.strokeStyle = "$(THEME.trace)"; g.globalAlpha = 0.8;
           g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke();
           g.globalAlpha = 1;
         }
@@ -782,8 +814,8 @@ $(AUDIO_GLUE)
       function drawScope(cv, t, node) {
         const g = cv.getContext("2d");
         const w = cv.width, h = cv.height, mid = h / 2;
-        g.fillStyle = "#1c1c26"; g.fillRect(0, 0, w, h);
-        g.strokeStyle = "#3a3a4a"; g.lineWidth = 1;
+        g.fillStyle = "$(THEME.inset)"; g.fillRect(0, 0, w, h);
+        g.strokeStyle = "$(THEME.border)"; g.lineWidth = 1;
         g.beginPath(); g.moveTo(0, mid + 0.5); g.lineTo(w, mid + 0.5); g.stroke();
         if (!node) return 0;
 
@@ -838,7 +870,8 @@ $(AUDIO_GLUE)
       });
     })();
     </script>
-    """)
+    """,
+    )
 end
 
 scope(tracks; kwargs...) = scope(live(), tracks; kwargs...)
@@ -852,9 +885,9 @@ function transport(e::Engine = live())
     backend = e.sink isa PortAudioSink ? "PortAudio (streaming)" : "WebAudio (looping)"
     HTML("""
     <div style="font-family:ui-monospace,monospace;font-size:12px;
-         background:#16161e;color:#c8c8d4;border:1px solid #3a3a4a;
+         background:$(THEME.bg);color:$(THEME.fg);border:1px solid $(THEME.border);
          border-radius:8px;padding:10px 12px;line-height:1.7">
-      <b style="color:#7aa2f7">polyhymnia</b><br>
+      <b style="color:$(THEME.accent)">polyhymnia</b><br>
       backend &nbsp;$(backend)<br>
       tempo &nbsp;&nbsp;&nbsp;$(round(e.cps[], digits=3)) cps
              ($(round(e.cps[]*60*4, digits=1)) bpm at 4 beats/cycle)<br>
