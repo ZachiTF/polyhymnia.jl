@@ -356,6 +356,80 @@ function zoom(b, e, p::Pattern)
     map_event_time(t -> (t - b) / d, map_query_time(t -> t * d + b, p))
 end
 
+"""
+Apply `f` only to the part of each cycle inside `[b, e)`.
+"""
+function within(b, e, f, p::Pattern)
+    b, e = Time(b), Time(e)
+    inside(ev) = b <= cycle_phase(ev.span.b) < e
+    stack(filter_events(inside, f(p)), filter_events(!inside, p))
+end
+
+"""
+Apply `f` to a different `1/n` of the cycle each time round.
+"""
+function chunk(n::Integer, f, p::Pattern)
+    n <= 1 && return f(p)
+    slowcat([within(i // n, (i + 1) // n, f, p) for i in 0:(n - 1)])
+end
+
+# -------------------------------------------------------- derived combinators
+
+"""
+Layer `p` with a transformed copy of itself.
+"""
+superimpose(f, p::Pattern) = stack(p, f(p))
+
+"""
+Layer `p` with a copy shifted `t` cycles later and passed through `f` — an echo
+that can be more than merely quieter, e.g. `off(1//8, gain(0.4), p)`.
+"""
+off(t, f, p::Pattern) = stack(p, f(rotr(t, p)))
+
+"""
+Repeat each event `n` times inside its own extent, so the rhythm subdivides
+without the pattern speeding up.
+"""
+function ply(n::Integer, p::Pattern)
+    n <= 1 && return p
+    Pattern() do span
+        out = Event[]
+        for ev in p.query(span)
+            ext = ev.extent
+            # A continuous signal has no extent of its own to subdivide.
+            if ext === nothing || duration(ext) <= 0
+                push!(out, ev)
+                continue
+            end
+            step = duration(ext) / n
+            for i in 0:(n - 1)
+                piece = Span(ext.b + i * step, ext.b + (i + 1) * step)
+                # The query may have asked for only part of the original event,
+                # so a repeat outside that fragment is not ours to emit.
+                seen = overlap(piece, ev.span)
+                seen === nothing || push!(out, Event(piece, seen, ev.value))
+            end
+        end
+        out
+    end
+end
+
+"""
+Start one step further into the pattern each cycle, coming back round after `n`.
+"""
+iter(n::Integer, p::Pattern) = n <= 1 ? p : slowcat([rotl(i // n, p) for i in 0:(n - 1)])
+
+"""
+Play forwards, then backwards, one cycle each.
+"""
+palindrome(p::Pattern) = slowcat(p, rev(p))
+
+"""
+Sample `p` `n` times per cycle, turning a continuous signal into discrete events
+so that an LFO can drive notes rather than only parameters.
+"""
+segment(n, p::Pattern) = combine((_, v) -> v, fast(n, pure(nothing)), p; timing = :left)
+
 # --------------------------------------------------------------- randomness
 
 # A cheap, deterministic hash-based noise source: the same cycle always yields
@@ -368,21 +442,35 @@ end
 
 const rand_sig = signal(_time_rand)
 
+# One coin per event, flipped from its start time so the same event always gets
+# the same answer. Splitting rather than filtering keeps the two halves exactly
+# complementary, which is what lets `sometimes_by` transform precisely the
+# events `degrade_by` would have thrown away.
+_coin(ev::Event, seed::Real) = _time_rand(extent_or_span(ev).b + Time(seed))
+
+_coin_split(amount::Real, p::Pattern, seed::Real) = (
+    filter_events(ev -> _coin(ev, seed) >= amount, p),
+    filter_events(ev -> _coin(ev, seed) < amount, p),
+)
+
 """
 Randomly drop events with probability `amount`.
 """
-function degrade_by(amount::Real, p::Pattern; seed::Real = 0)
-    Pattern(function (span)
-        out = Event[]
-        for ev in p.query(span)
-            r = _time_rand(extent_or_span(ev).b + Time(seed))
-            r >= amount && push!(out, ev)
-        end
-        out
-    end)
-end
+degrade_by(amount::Real, p::Pattern; seed::Real = 0) = first(_coin_split(amount, p, seed))
 
 degrade(p::Pattern) = degrade_by(0.5, p)
+
+"""
+Apply `f` to a random `amount` of the events and leave the rest untouched.
+"""
+function sometimes_by(amount::Real, f, p::Pattern; seed::Real = 0)
+    untouched, chosen = _coin_split(amount, p, seed)
+    stack(untouched, f(chosen))
+end
+
+sometimes(f, p::Pattern; seed::Real = 0) = sometimes_by(0.5, f, p; seed)
+often(f, p::Pattern; seed::Real = 0) = sometimes_by(0.75, f, p; seed)
+rarely(f, p::Pattern; seed::Real = 0) = sometimes_by(0.25, f, p; seed)
 
 # ------------------------------------------------------------------- euclid
 
@@ -418,3 +506,17 @@ function euclid(k::Integer, n::Integer, p::Pattern; rotation::Integer = 0)
     rotation != 0 && (bits = circshift(bits, -rotation))
     fastcat([b ? p : silence for b in bits])
 end
+
+# ------------------------------------------------------------------ currying
+
+# Leaving the pattern off gives back the transformation itself, so one can be
+# *named* where a function is expected — `every(4, fast(2), p)` rather than
+# `every(4, x -> fast(2, x), p)`. `rev` already reads that way, being a
+# transformation of one argument to begin with.
+fast(r) = p -> fast(r, p)
+slow(r) = p -> slow(r, p)
+rotl(t) = p -> rotl(t, p)
+rotr(t) = p -> rotr(t, p)
+ply(n::Integer) = p -> ply(n, p)
+iter(n::Integer) = p -> iter(n, p)
+degrade_by(amount::Real) = p -> degrade_by(amount, p)

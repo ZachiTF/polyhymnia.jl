@@ -33,8 +33,10 @@ include("pluto.jl")          # the notebook front end
 # pattern algebra
 export Pattern, Span, Time
 export silence, pure, signal, slowcat, fastcat, timecat, overlay, seq, slowseq
-export fast, slow, rev, rotl, rotr, every, when_cycle, zoom, compress
-export degrade, degrade_by, euclid, bjorklund, map_values, filter_values
+export fast, slow, rev, rotl, rotr, every, when_cycle, zoom, compress, within, chunk
+export superimpose, off, ply, iter, palindrome, segment
+export degrade, degrade_by, sometimes, sometimes_by, often, rarely
+export euclid, bjorklund, map_values, filter_values
 export query, query_cycle, has_onset, limit!
 # Two names are deliberately *not* exported, because Base exports them too and
 # an ambiguous name errors at the point of use:
@@ -51,7 +53,7 @@ export mini, @m_str
 export Control, CurriedControl, Controls, to_pattern
 export controls_of, event_label, onset_events
 export sound, s, note, n, gain, pan, attack, decay, sustain, release
-export cutoff, hcutoff, shape, speed, legato, range_
+export cutoff, hcutoff, shape, speed, legato, range_, jux
 export sine_lfo, cosine_lfo, saw_lfo, isaw_lfo, tri_lfo, square_lfo, rand_lfo
 
 # synthesis
