@@ -133,6 +133,21 @@ Fit all the patterns into a single cycle.
 """
 seq(ps...) = fastcat([to_pattern(p) for p in ps])
 
+"""
+    jux(f, p; by = 1)
+
+Send `p` to one side of the stereo image and `f(p)` to the other. `by` is how
+far apart, from `0` (both centred) to `1` (hard left and hard right).
+
+The pan is applied *before* `f`, so a transformation that panning is part of —
+`jux(pan(0.5), p)` — still has the last word.
+"""
+function jux(f, p; by = 1)
+    q = to_pattern(p)
+    spread = by / 2
+    overlay(pan(0.5 - spread)(q), f(pan(0.5 + spread)(q)))
+end
+
 # ------------------------------------------------------------------ signals
 
 # Continuous LFOs, all in `[0, 1]` with one period per cycle. Useful as control

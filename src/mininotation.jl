@@ -9,6 +9,8 @@
 #   "bd?"            drop ~half the time
 #   "bd(3,8)"        euclidean rhythm       "bd(3,8,2)" rotated
 #   "bd, hh*4"       layer two sequences
+#   "{a b c, d e}"   polymeter: both layers step at the first layer's rate
+#   "{a b c, d e}%4" polymeter at four steps per cycle
 
 struct MiniError <: Exception
     msg::String
@@ -98,15 +100,18 @@ function parse_stack!(p::MiniParser, closing::Char)
 end
 
 """
-Parse a space-separated run of steps into one cycle.
+Parse a space-separated run of steps, leaving them un-collapsed.
+
+Polymeter needs the steps themselves — how many there are decides how fast the
+layer runs — so the parsing and the laying out are kept apart.
 """
-function parse_sequence!(p::MiniParser, closing::Char)
+function parse_steps!(p::MiniParser, closing::Char)
     steps = Step[]
     while true
         skipws!(p)
         (done(p) || peekc(p) == closing || peekc(p) == ',') && break
         c = peekc(p)
-        (c == ']' || c == '>' || c == ')') && break
+        (c == ']' || c == '>' || c == ')' || c == '}') && break
         if c == '_'
             # Elongation: stretch the previous step over another slot.
             advance!(p)
@@ -116,12 +121,25 @@ function parse_sequence!(p::MiniParser, closing::Char)
         end
         append!(steps, parse_step!(p))
     end
+    steps
+end
+
+"""How many steps' worth of cycle a run occupies, counting `@` weights."""
+step_count(steps::Vector{Step}) = isempty(steps) ? Time(0) : sum(s.weight for s in steps)
+
+"""Lay a run of steps out across one cycle."""
+function steps_pattern(steps::Vector{Step})
     isempty(steps) && return silence
     if all(s -> s.weight == 1, steps)
         return fastcat([s.pat for s in steps])
     end
     timecat([(s.weight, s.pat) for s in steps])
 end
+
+"""
+Parse a space-separated run of steps into one cycle.
+"""
+parse_sequence!(p::MiniParser, closing::Char) = steps_pattern(parse_steps!(p, closing))
 
 """
 Parse one atom plus its trailing modifiers. May expand to several steps via `!`.
@@ -181,6 +199,27 @@ function parse_factor!(p::MiniParser)
 end
 
 """
+Lay polymetric layers out so every layer plays `base` steps per cycle.
+
+Each layer keeps its own number of steps, so layers of unequal length drift
+against one another and only realign after their common multiple of cycles —
+`{a b c, d e}` is three against two, not two bars squashed together.
+"""
+function polymeter(layers::Vector{Vector{Step}}, base::Time)
+    base <= 0 && return silence
+    pats = Pattern[]
+    for steps in layers
+        k = step_count(steps)
+        k == 0 && continue
+        # One pass of the layer covers k steps; at `base` steps per cycle that
+        # pass has to take k/base cycles.
+        push!(pats, fast(base // k, steps_pattern(steps)))
+    end
+    isempty(pats) && return silence
+    length(pats) == 1 ? pats[1] : stack(pats)
+end
+
+"""
 Parse `(k,n)` or `(k,n,rotation)` after an atom.
 """
 function parse_euclid!(p::MiniParser, pat::Pattern)
@@ -227,6 +266,25 @@ function parse_atom!(p::MiniParser)
         peekc(p) == ']' || fail(p, "missing ']'")
         advance!(p)
         return inner
+    elseif c == '{'
+        advance!(p)
+        layers = Vector{Step}[]
+        while true
+            push!(layers, parse_steps!(p, '}'))
+            skipws!(p)
+            peekc(p) == ',' || break
+            advance!(p)
+        end
+        peekc(p) == '}' || fail(p, "missing '}'")
+        advance!(p)
+        # The first layer sets the step length every layer is measured in,
+        # unless `%n` overrides it.
+        base = step_count(layers[1])
+        if !done(p) && peekc(p) == '%'
+            advance!(p)
+            base = parse_factor!(p)
+        end
+        return polymeter(layers, base)
     elseif c == '<'
         advance!(p)
         # Angle brackets alternate: one step of the sequence per cycle.

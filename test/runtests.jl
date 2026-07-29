@@ -51,6 +51,65 @@ spans(p, c = 0) = [(ev.extent.b, ev.extent.e) for ev in cyc(p, c)]
         @test length(cyc(euclid(3, 8, pure("x")))) == 3
     end
 
+    @testset "derived combinators" begin
+        @test sort(vals(superimpose(rev, m"a b"))) == ["a", "a", "b", "b"]
+
+        # off layers a copy shifted later in time
+        @test [ev.extent.b for ev in cyc(off(1 // 4, identity, m"a"))] == [0 // 1, 1 // 4]
+
+        # ply subdivides each event inside its own extent — four events in the
+        # same places `a b` had two, not the pattern running twice as fast
+        @test vals(ply(2, m"a b")) == ["a", "a", "b", "b"]
+        @test spans(ply(2, m"a b")) ==
+              [(0 // 1, 1 // 4), (1 // 4, 1 // 2), (1 // 2, 3 // 4), (3 // 4, 1 // 1)]
+        @test vals(ply(1, m"a b")) == ["a", "b"]
+
+        it = iter(2, m"a b")
+        @test vals(it, 0) == ["a", "b"]
+        @test vals(it, 1) == ["b", "a"]
+        @test vals(it, 2) == ["a", "b"]
+
+        pal = palindrome(m"a b c")
+        @test vals(pal, 0) == ["a", "b", "c"]
+        @test vals(pal, 1) == ["c", "b", "a"]
+
+        # segment samples a continuous signal into discrete events
+        seg = segment(4, saw_lfo)
+        @test length(cyc(seg)) == 4
+        @test all(v -> 0 <= v <= 1, vals(seg))
+        @test issorted(vals(seg))          # a saw rises across the cycle
+
+        # `within` transforms the whole pattern and keeps only the window's
+        # share of the result, so the first half runs double-time here
+        @test vals(within(0, 1 // 2, p -> fast(2, p), m"a b")) == ["a", "b", "b"]
+
+        # chunk walks that window along, one place per cycle
+        ch = chunk(2, p -> fast(2, p), m"a b")
+        @test vals(ch, 0) == ["a", "b", "b"]
+        @test vals(ch, 1) == ["a", "a", "b"]
+
+        # sometimes_by splits the events in two and transforms one half; the
+        # halves are complementary, so nothing is lost or doubled
+        shout = p -> map_values(_ -> "B", p)
+        @test length(cyc(sometimes(shout, m"a*16"))) == 16
+        @test all(==("a"), vals(sometimes_by(0, shout, m"a*16")))
+        @test all(==("B"), vals(sometimes_by(1, shout, m"a*16")))
+        @test count(==("B"), vals(rarely(shout, m"a*16"))) <
+              count(==("B"), vals(often(shout, m"a*16")))
+
+        # leaving the pattern off gives back the transformation itself
+        @test vals(every(2, fast(2), m"a b"), 0) == ["a", "b", "a", "b"]
+        @test vals(every(2, fast(2), m"a b"), 1) == ["a", "b"]
+        @test vals(ply(2)(m"a b")) == vals(ply(2, m"a b"))
+        @test vals(iter(2)(m"a b"), 1) == ["b", "a"]
+
+        # jux sends the original one way and the transform the other
+        j = cyc(jux(rev, m"a b"))
+        @test length(j) == 4
+        @test sort([ev.value[:pan] for ev in j]) == [0.0, 0.0, 1.0, 1.0]
+        @test sort([ev.value[:pan] for ev in cyc(jux(rev, m"a"; by = 0))]) == [0.5, 0.5]
+    end
+
     @testset "mini-notation" begin
         @test vals(m"bd sd") == ["bd", "sd"]
         @test vals(m"bd [sd sd]") == ["bd", "sd", "sd"]
@@ -77,6 +136,36 @@ spans(p, c = 0) = [(ev.extent.b, ev.extent.e) for ev in cyc(p, c)]
 
         @test_throws Polyhymnia.MiniError mini("bd [sd")
         @test_throws Polyhymnia.MiniError mini("bd ]")
+    end
+
+    @testset "polymeter" begin
+        # a single layer at its own step count is just a sequence
+        @test spans(m"{a b c}") == spans(m"a b c")
+        @test vals(m"{a b c}") == ["a", "b", "c"]
+
+        # %n sets the steps per cycle; two steps at four per cycle repeat twice
+        @test vals(m"{d e}%4") == ["d", "e", "d", "e"]
+        @test spans(m"{d e}%4") ==
+              [(0 // 1, 1 // 4), (1 // 4, 1 // 2), (1 // 2, 3 // 4), (3 // 4, 1 // 1)]
+
+        # two steps at three per cycle do not fit, so the layer drifts and only
+        # comes back round on the second cycle
+        @test vals(m"{d e}%3", 0) == ["d", "e", "d"]
+        @test vals(m"{d e}%3", 1) == ["e", "d", "e"]
+        @test vals(m"{d e}%3", 2) == ["d", "e", "d"]
+
+        # the first layer sets the rate for the rest
+        @test length(cyc(m"{a b c, d e}")) == 6
+        @test length(cyc(m"{a b, c}")) == 4
+
+        # a three-step layer held to two steps a cycle takes three halves of a
+        # cycle to get through itself
+        @test vals(m"{a b c}%2", 0) == ["a", "b"]
+        @test vals(m"{a b c}%2", 1) == ["c", "a"]
+
+        @test isempty(cyc(m"{}"))
+        @test_throws Polyhymnia.MiniError mini("{a b")
+        @test_throws Polyhymnia.MiniError mini("a }")
     end
 
     @testset "controls" begin
