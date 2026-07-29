@@ -60,8 +60,15 @@ Written inside `m"..."` or `mini("...")`.
 | `bd?` / `bd?0.3` | randomly drop, deterministic per cycle |
 | `bd(3,8)` / `bd(3,8,2)` | euclidean rhythm, optionally rotated |
 | `bd, hh*4` | layer two sequences |
+| `{bd sd, hh hh hh}` | polymeter — every layer steps at the first layer's rate |
+| `{bd sd hh}%4` | polymeter at four steps per cycle |
 
 Nesting works as you'd expect: `<a <b c>>` yields `a b a c` over four cycles.
+
+Polymeter is the one to sit with. `[bd sd, hh hh hh]` squashes three hats into
+the same cycle as two drums; `{bd sd, hh hh hh}` gives the hats the *drums'* step
+length instead, so three-against-two runs on and only comes back round every
+third cycle.
 
 ## Sounds and controls
 
@@ -87,15 +94,28 @@ pan(sine_lfo)
 cutoff(saw_lfo * 2000 + 200)
 ```
 
-**Pattern functions**: `fast slow rev every zoom compress degrade degrade_by
+**Pattern functions**: `fast slow rev every when_cycle zoom compress within chunk
 euclid overlay seq slowseq timecat`
+
+**Chance**: `degrade degrade_by sometimes sometimes_by often rarely` — all
+deterministic per cycle, so a pattern sounds the same on every replay.
+
+**Layering and repetition**: `superimpose off jux ply iter palindrome segment`
 
 (`overlay` is the layering operation. `Polyhymnia.stack` is the same thing but is
 not exported, because `Base` exports a `stack` of its own.)
 
 ```julia
 every(4, rev, m"bd sd hh cp")
+off(1//8, gain(0.4), m"bd*2 sd")            # an echo an eighth of a cycle later
+jux(rev, m"bd sd hh cp")                    # as played left, reversed right
+ply(2, m"bd sd")                            # each hit twice, same rhythm
+sometimes(fast(2), m"hh*8")                 # half the hats doubled
+cutoff(segment(8, saw_lfo) * 2000 + 200)    # a stepped sweep, not a glide
 ```
+
+`within` and `chunk` treat part of the cycle differently from the rest:
+`chunk(4, rev, p)` reverses a different quarter each time round.
 
 ## Backends
 
@@ -206,7 +226,7 @@ install time. Nothing here needs them.
 ```
 src/
   Polyhymnia.jl     module and exports
-  pattern.jl        the pattern algebra (Span, Hap, Pattern, combinators)
+  pattern.jl        the pattern algebra (Span, Event, Pattern, combinators)
   mininotation.jl   "bd sd [hh hh]" parser
   controls.jl       named synth parameters, LFOs, pattern arithmetic
   voices.jl         events -> samples, via Euterpe's oscillators
