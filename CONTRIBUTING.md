@@ -25,22 +25,33 @@ The first `instantiate` takes a while: Euterpe depends on
 
 ## Branching
 
-`main` is always green and is protected. Work happens on short-lived branches
-off `main` and lands through a pull request.
+`main` is meant to stay green. Work happens on short-lived branches off `main`
+and lands through a pull request.
 
 ```
 feat/euclid-rotation      fix/pan-mono-buffers      docs/mini-notation-table
 chore/bump-euterpe        refactor/sink-interface   test/engine-cycles
 ```
 
-Pull requests are **squash-merged**, so `main` reads as one commit per change.
-Whatever you like can happen inside your branch — the squashed subject line is
-what has to be right, and it must follow the commit convention below.
+Pull requests are **merged, not squashed** — the squash button is switched off
+in the repository settings. A branch arrives on `main` with its commits intact,
+under a merge commit.
+
+That is a deliberate trade. `main` no longer reads as one commit per change, but
+a branch that did three separable things stays three commits, each one
+reviewable, revertable and bisectable on its own. The cost is that **every
+commit on the branch lands on `main`**, so every commit subject has to be right
+— not just the pull request title. See the commit convention below.
+
+In return, please shape the branch before opening it: one commit per coherent
+change, no "fix typo" or "address review" commits left in the history. Rebase
+and amend freely while the branch is yours.
 
 ## Commits
 
-[Conventional Commits](https://www.conventionalcommits.org), enforced by a
-`commit-msg` hook:
+[Conventional Commits](https://www.conventionalcommits.org) on **every** commit,
+not only the pull request title, since merging preserves them all. The
+`commit-msg` hook enforces this locally:
 
 ```
 <type>[optional scope]: <description>
